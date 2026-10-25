@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF 智能解析</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --border-strong: #d1d5db;
+    --text: #1f2328;
+    --text-2: #4b5563;
+    --text-3: #9ca3af;
+    --accent: #2563eb;
+    --accent-weak: #eff6ff;
+    --success: #16a34a;
+    --success-weak: #ecfdf5;
+    --warn: #d97706;
+    --warn-weak: #fffbeb;
+    --danger: #dc2626;
+    --danger-weak: #fef2f2;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Layout ===== */
+  .app { display: flex; height: 100vh; }
+  .sidebar {
+    width: 264px;
+    flex: 0 0 264px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar-head {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px;
+  }
+  .sidebar-title { font-weight: 600; font-size: 15px; }
+  .sidebar-sub { font-size: 12px; color: var(--text-3); }
+  .job-list { flex: 1; overflow-y: auto; padding: 10px; min-height: 0; }
+  .job-empty { padding: 24px 12px; text-align: center; color: var(--text-3); font-size: 13px; }
+  .job-item {
+    padding: 10px 12px;
+    border-radius: 9px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    margin-bottom: 4px;
+  }
+  .job-item:hover { background: #f3f4f6; }
+  .job-item.active { background: var(--accent-weak); border-color: #bfdbfe; }
+  .job-name {
+    font-size: 13px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .job-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+  .dot.queued { background: var(--text-3); }
+  .dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
+  .dot.success { background: var(--success); }
+  .dot.failed { background: var(--danger); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar {
+    height: 58px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    flex: 0 0 58px;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 500;
+    padding: 3px 9px; border-radius: 999px;
+    background: var(--success-weak); color: #15803d;
+    border: 1px solid #bbf7d0;
+  }
+  .content { flex: 1; overflow-y: auto; padding: 28px 32px 48px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  /* ===== Upload ===== */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .card-desc { color: var(--text-2); font-size: 13px; margin-bottom: 18px; }
+  .dropzone {
+    border: 1.5px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 44px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: #fafbfc;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--accent); background: var(--accent-weak); }
+  .dropzone-icon { margin-bottom: 12px; color: var(--accent); }
+  .dropzone-title { font-size: 15px; font-weight: 600; }
+  .dropzone-hint { color: var(--text-2); font-size: 13px; margin-top: 5px; }
+  .options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text-2); }
+  select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: #fff;
+    font-size: 14px;
+    color: var(--text);
+    font-family: inherit;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%236b7280' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+
+  /* ===== Progress ===== */
+  .steps { display: flex; margin: 6px 0 22px; }
+  .step { flex: 1; position: relative; text-align: center; }
+  .step:not(:last-child)::after {
+    content: ""; position: absolute; top: 15px; left: 50%; width: 100%; height: 2px;
+    background: var(--border); z-index: 0;
+  }
+  .step.done:not(:last-child)::after { background: var(--accent); }
+  .step-circle {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 8px; position: relative; z-index: 1;
+    font-size: 13px; font-weight: 600; color: var(--text-3);
+    transition: all .2s;
+  }
+  .step.active .step-circle { border-color: var(--accent); color: var(--accent); }
+  .step.done .step-circle { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .step-label { font-size: 12px; color: var(--text-3); }
+  .step.active .step-label { color: var(--text); font-weight: 500; }
+  .step.done .step-label { color: var(--text-2); }
+
+  /* ===== Result ===== */
+  .result-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .result-file { font-size: 15px; font-weight: 600; word-break: break-all; }
+  .result-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .chip {
+    font-size: 12px; font-weight: 500;
+    padding: 3px 10px; border-radius: 999px;
+    background: #f3f4f6; color: var(--text-2);
+    border: 1px solid var(--border);
+  }
+  .chip.type { background: var(--accent-weak); color: #1d4ed8; border-color: #bfdbfe; }
+  .chip.conf { background: var(--success-weak); color: #15803d; border-color: #bbf7d0; }
+  .actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    border: 1px solid transparent; font-family: inherit;
+    transition: background .15s, border-color .15s;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-ghost { background: #fff; border-color: var(--border-strong); color: var(--text-2); }
+  .btn-ghost:hover { background: #f3f4f6; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .report { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px 32px; }
+  .report h1 { font-size: 20px; margin-bottom: 14px; }
+  .report h2 { font-size: 16px; margin: 22px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .report h3 { font-size: 14px; margin: 16px 0 6px; }
+  .report p { margin: 8px 0; }
+  .report ul, .report ol { margin: 8px 0 8px 22px; }
+  .report li { margin: 4px 0; }
+  .report table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px; }
+  .report th, .report td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
+  .report th { background: #f9fafb; font-weight: 600; }
+  .report code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .report a { color: var(--accent); }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #111827; color: #fff; padding: 10px 18px; border-radius: 9px;
+    font-size: 13px; box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; }
+  .hidden { display: none !important; }
+
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .content { padding: 20px 16px 40px; }
+    .options { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="logo">P</div>
+      <div>
+        <div class="sidebar-title">PDF 智能解析</div>
+        <div class="sidebar-sub">类型识别 · 重点提取</div>
+      </div>
+    </div>
+    <div class="job-list" id="jobList"></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span id="pageTitle">新建解析任务</span>
+      </div>
+      <div class="topbar-right">
+        <span class="badge" id="modeBadge"><span class="dot success"></span>演示模式</span>
+      </div>
+    </header>
+
+    <div class="content">
+      <div class="wrap">
+        <!-- 上传 -->
+        <section class="card" id="uploadCard">
+          <div class="card-title">上传 PDF</div>
+          <div class="card-desc">系统将自动识别文档类型（图纸 / 规格书 / 检验报告等），并按对应规则提取重点内容。</div>
+          <div class="dropzone" id="dropzone">
+            <div class="dropzone-icon">
+              <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="dropzone-title">拖拽文件到这里，或点击选择</div>
+            <div class="dropzone-hint">支持 PDF，单个文件不超过 50 MB</div>
+          </div>
+          <input type="file" id="fileInput" accept=".pdf,application/pdf" class="hidden">
+          <div class="options">
+            <div class="field">
+              <label for="docType">文档类型</label>
+              <select id="docType">
+                <option value="auto" selected>自动识别（推荐）</option>
+                <option value="drawing">工程图纸</option>
+                <option value="spec">技术规格书</option>
+                <option value="report">检验 / 检测报告</option>
+                <option value="bom">BOM 物料清单</option>
+                <option value="contract">合同 / 协议</option>
+                <option value="manual">手册 / 说明书</option>
+                <option value="generic">通用文档</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="outFormat">输出格式</label>
+              <select id="outFormat">
+                <option value="markdown" selected>Markdown</option>
+                <option value="pdf">PDF</option>
+                <option value="docx">Word</option>
+                <option value="html">HTML</option>
+              </select>
+            </div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label for="apiKey">DeepSeek API Key（可选，不填则用服务端默认）</label>
+              <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" style="width:100%;padding:9px 12px;border:1px solid var(--border-strong);border-radius:8px;font-size:14px;font-family:inherit;">
+            </div>
+          </div>
+        </section>
+
+        <!-- 进度 -->
+        <section class="card hidden" id="progressCard">
+          <div class="card-title" id="progressFile"></div>
+          <div class="steps" id="steps">
+            <div class="step" data-step="0"><div class="step-circle">1</div><div class="step-label">上传文件</div></div>
+            <div class="step" data-step="1"><div class="step-circle">2</div><div class="step-label">识别类型</div></div>
+            <div class="step" data-step="2"><div class="step-circle">3</div><div class="step-label">解析内容</div></div>
+            <div class="step" data-step="3"><div class="step-circle">4</div><div class="step-label">生成报告</div></div>
+          </div>
+          <div class="card-desc" id="progressNote" style="margin-bottom:0;">正在准备…</div>
+        </section>
+
+        <!-- 结果 -->
+        <section class="card hidden" id="resultCard">
+          <div class="result-head">
+            <div>
+              <div class="result-file" id="resultFile"></div>
+              <div class="result-chips">
+                <span class="chip type" id="chipType"></span>
+                <span class="chip conf" id="chipConf"></span>
+                <span class="chip" id="chipPages"></span>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-ghost" id="btnRedo">重新解析</button>
+              <button class="btn btn-ghost" id="btnDownload">下载</button>
+            </div>
+          </div>
+          <div class="report" id="reportBody"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ * 配置：接真实后端时，把 DEMO_MODE 改为 false 并填 API_BASE
+ * 后端契约：
+ *   POST /v1/parse  (multipart: file, options) -> {job_id, status}
+ *   GET  /v1/parse/{job_id} -> {status, doc_type, confidence, report}
+ * ============================================================ */
+const CONFIG = {
+  DEMO_MODE: false,
+  API_BASE: location.protocol.startsWith("http") ? "" : "http://localhost:8000",
+  POLL_INTERVAL_MS: 1500
+};
+
+const TYPE_LABELS = {
+  auto: "自动识别",
+  drawing: "工程图纸",
+  spec: "技术规格书",
+  report: "检验 / 检测报告",
+  bom: "BOM 物料清单",
+  contract: "合同 / 协议",
+  manual: "手册 / 说明书",
+  generic: "通用文档"
+};
+
+const DEMO_REPORT = `# 图纸识别报告
+
+来源文件：20260601-1XXXX.pdf ｜ 名称：CSP_箱体组件 ｜ 编码：20204036 ｜ 重量：6.06 kg ｜ 比例：1:2 ｜ 图幅：A0
+
+范围限制：源 PDF 实际仅含 1 页，标题栏标注“第 1 页，共 7 页”。以下为该总览页的图面识别结果，完整加工尺寸须结合其余图页及引用的 3D 数据。
+
+## 一、尺寸及公差
+
+| 项目 | 图纸标注 |
+| --- | --- |
+| 吊耳孔 | 直径 12，3 处 |
+| 拉涨堵头 | 直径 16 mm × 1 件；直径 18 mm × 5 件 |
+| 绝缘膜厚度 | PI 基材 0.075 mm；胶厚 0.025 mm；总厚 T=0.1 mm |
+| 未注倒圆角 | R0.5 |
+| 顶针位置 | 必须低于产品可见平面，图纸标注 ≤0.2 mm |
+| 螺纹精度 | 按 6H 加工；本页未标具体螺纹规格 |
+| 未注尺寸公差 | GB/T 1804-2008，m 级 |
+
+## 二、材料及组成
+
+| 部件编码 | 名称 / 材料 | 数量 |
+| --- | --- | --- |
+| SIT20201766 | CSP_箱体零件 / AlSi12Fe 铝合金 | 1 |
+| SIT20253690 | PI 绝缘膜，0.075 mm 基材 + 0.025 mm 胶 | 1 |
+| SIT20253691 | PI 绝缘膜，0.075 mm 基材 + 0.025 mm 胶 | 1 |
+| 21020582 | 水嘴保护套；未注明材质 | 1 |
+| SIT32010523 | 直径 16 mm 拉涨堵头；未注明材质 | 1 |
+| SIT32010718 | 直径 18 mm 拉涨堵头；未注明材质 | 5 |
+
+## 三、工艺及检验要求
+
+### 箱体
+
+- 箱体压铸及加工：按《SIT0045004 压铸件通用供货技术协议》执行；外观要求抛丸，不允许周边毛刺、利边。
+- 密封检测：水道采用氦检，按《SIT0045003》；壳体密封检测按《SIT0045010》执行。
+- 密封面：不得有油污、脱模剂等有机杂质；表面能要求按《SIT0045011》执行。
+
+### 堵头
+
+- 堵头装配采用拉胀式堵头装配工艺，装配及检验按《SIT00060545》执行。
+
+### 绝缘膜
+
+- 阻燃等级 UL94 V0；长期耐热 ≥135℃ 不变形；击穿电压 >5000 V；吸水率 <2%。
+- 表面平整，无破损、水渍、开裂褶皱、脏污，不得出现烧焦或发黄痕迹。
+
+## 四、待补充确认
+
+1. 补齐其余 6 页及 3D 数据，确认完整外形、孔位、水道、螺纹规格与对应公差。
+2. 本页引用的企业标准正文未随文件提供，密封、表面能、清洁度等具体检测阈值无法由本页补全。
+3. 绝缘膜设计厚度 0.075 mm 与明细表基材 0.075 mm、胶厚 0.025 mm、总厚 0.1 mm 需区分验收口径。`;
+
+/* ============================================================
+ * 工具函数
+ * ============================================================ */
+const $ = (sel) => document.querySelector(sel);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* ---- 轻量 Markdown 渲染（覆盖报告所需子集） ---- */
+function inline(text) {
+  let s = escapeHtml(text);
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+function mdToHtml(md) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let i = 0;
+
+  const isTableLine = (l) => /^\s*\|.*\|\s*$/.test(l);
+  const isSeparator = (l) => /^\s*\|?[\s:|-]+\|?\s*$/.test(l) && l.includes("-");
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) { i++; continue; }
+
+    // 标题
+    const h = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const level = h[1].length;
+      html += `<h${level}>${inline(h[2])}</h${level}>`;
+      i++; continue;
+    }
+
+    // 表格
+    if (isTableLine(trimmed) && i + 1 < lines.length && isSeparator(lines[i + 1].trim())) {
+      const header = trimmed.split("|").slice(1, -1).map((c) => c.trim());
+      const rows = [];
+      i += 2;
+      while (i < lines.length && isTableLine(lines[i].trim())) {
+        rows.push(lines[i].trim().split("|").slice(1, -1).map((c) => c.trim()));
+        i++;
+      }
+      html += "<table><thead><tr>";
+      header.forEach((c) => { html += `<th>${inline(c)}</th>`; });
+      html += "</tr></thead><tbody>";
+      rows.forEach((r) => {
+        html += "<tr>";
+        r.forEach((c) => { html += `<td>${inline(c)}</td>`; });
+        html += "</tr>";
+      });
+      html += "</tbody></table>";
+      continue;
+    }
+
+    // 无序列表
+    if (/^\s*[-*+]\s+/.test(trimmed)) {
+      html += "<ul>";
+      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i].trim())) {
+        const item = lines[i].trim().replace(/^\s*[-*+]\s+/, "");
+        html += `<li>${inline(item)}</li>`;
+        i++;
+      }
+      html += "</ul>";
+      continue;
+    }
+
+    // 有序列表
+    if (/^\s*\d+[.)]\s+/.test(trimmed)) {
+      html += "<ol>";
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i].trim())) {
+        const item = lines[i].trim().replace(/^\s*\d+[.)]\s+/, "");
+        html += `<li>${inline(item)}</li>`;
+        i++;
+      }
+      html += "</ol>";
+      continue;
+    }
+
+    // 分割线
+    if (/^(-{3,}|\*{3,})$/.test(trimmed)) {
+      html += "<hr>";
+      i++; continue;
+    }
+
+    // 段落
+    html += `<p>${inline(trimmed)}</p>`;
+    i++;
+  }
+  return html;
+}
+
+/* ============================================================
+ * 任务状态
+ * ============================================================ */
+const STORAGE_KEY = "pdf_parse_jobs_v1";
+let jobs = [];
+let currentId = null;
+
+function loadJobs() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch (e) { return []; }
+}
+function saveJobs() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs.slice(0, 30))); }
+  catch (e) { /* 忽略存储失败 */ }
+}
+
+function renderJobList() {
+  const list = $("#jobList");
+  if (!jobs.length) {
+    list.innerHTML = '<div class="job-empty">暂无任务<br>上传文件后显示在这里</div>';
+    return;
+  }
+  list.innerHTML = jobs.map((j) => `
+    <div class="job-item ${j.id === currentId ? "active" : ""}" data-id="${j.id}">
+      <div class="job-name">${escapeHtml(j.fileName)}</div>
+      <div class="job-meta">
+        <span class="dot ${j.status}"></span>
+        <span style="font-size:12px;color:var(--text-3);">${TYPE_LABELS[j.docType] || "待识别"}</span>
+        <span style="font-size:12px;color:var(--text-3);margin-left:auto;">${j.time}</span>
+      </div>
+    </div>
+  `).join("");
+  document.querySelectorAll(".job-item").forEach((el) => {
+    el.addEventListener("click", () => showJob(el.dataset.id));
+  });
+}
+
+function showJob(id) {
+  const job = jobs.find((j) => j.id === id);
+  if (!job) return;
+  currentId = id;
+  $("#pageTitle").textContent = "解析结果";
+  $("#uploadCard").classList.add("hidden");
+  $("#resultCard").classList.add("hidden");
+  $("#progressCard").classList.add("hidden");
+
+  if (job.status === "success" && job.markdown) {
+    showResult(job);
+  } else if (job.status === "queued" || job.status === "running") {
+    $("#progressCard").classList.remove("hidden");
+    $("#progressFile").textContent = job.fileName;
+    $("#progressNote").textContent = job.status === "queued" ? "排队中…" : "解析中…";
+    document.querySelectorAll("#steps .step").forEach((el, i) => {
+      el.classList.remove("active", "done");
+      if (i === 1) el.classList.add("active");
+    });
+  } else {
+    $("#progressCard").classList.remove("hidden");
+    $("#progressFile").textContent = job.fileName;
+    $("#progressNote").textContent = "解析失败，请重新上传";
+  }
+  renderJobList();
+}
+
+function newJob(fileName) {
+  const job = {
+    id: "job_" + Date.now().toString(36),
+    fileName,
+    status: "queued",
+    docType: "auto",
+    confidence: null,
+    pages: null,
+    report: null,
+    markdown: null,
+    time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+  };
+  jobs.unshift(job);
+  if (jobs.length > 30) jobs.length = 30;
+  currentId = job.id;
+  saveJobs();
+  renderJobList();
+  return job;
+}
+
+function updateJob(job, patch) {
+  Object.assign(job, patch);
+  saveJobs();
+  renderJobList();
+}
+
+/* ============================================================
+ * 流程控制
+ * ============================================================ */
+const STEPS = ["上传文件", "识别类型", "解析内容", "生成报告"];
+
+function setStep(idx, state) {
+  const steps = document.querySelectorAll("#steps .step");
+  steps.forEach((el, i) => {
+    el.classList.remove("active", "done");
+    if (i < idx) el.classList.add("done");
+    if (i === idx) el.classList.add("active");
+  });
+  $("#progressNote").textContent =
+    state === "done" ? "解析完成" :
+    state === "fail" ? "解析失败" :
+    `正在${STEPS[idx]}…`;
+}
+
+function applyStage(stage) {
+  const s = (stage || "").toString();
+  let idx = 1; // 默认：识别类型
+  if (/提取文本|渲染|切片|转写|分段提取|解析内容/.test(s)) idx = 2;
+  else if (/生成报告|汇总报告|汇总/.test(s)) idx = 3;
+  else if (/识别模型|识别类型|排队/.test(s)) idx = 1;
+  setStep(idx, "running");
+  if (s) $("#progressNote").textContent = s;
+}
+
+function showUpload() {
+  $("#pageTitle").textContent = "新建解析任务";
+  $("#uploadCard").classList.remove("hidden");
+  $("#progressCard").classList.add("hidden");
+  $("#resultCard").classList.add("hidden");
+}
+
+function showResult(job) {
+  $("#resultFile").textContent = job.fileName;
+  $("#chipType").textContent = TYPE_LABELS[job.docType] || job.docType;
+  $("#chipConf").textContent = job.confidence ? `识别置信度 ${(job.confidence * 100).toFixed(0)}%` : "类型已识别";
+  $("#chipPages").textContent = job.pages ? `${job.pages} 页` : "";
+  $("#reportBody").innerHTML = mdToHtml(job.markdown || "");
+  $("#resultCard").classList.remove("hidden");
+  $("#pageTitle").textContent = "解析结果";
+}
+
+async function runParse(file) {
+  const job = newJob(file.name);
+  $("#uploadCard").classList.add("hidden");
+  $("#resultCard").classList.add("hidden");
+  $("#progressCard").classList.remove("hidden");
+  $("#progressFile").textContent = file.name;
+  setStep(0, "running");
+  updateJob(job, { status: "running" });
+  await sleep(500);
+
+  const options = {
+    mode: $("#docType").value === "auto" ? "auto" : "manual",
+    doc_type: $("#docType").value === "auto" ? null : $("#docType").value,
+    format: $("#outFormat").value
+  };
+
+  try {
+    let result;
+    if (CONFIG.DEMO_MODE) {
+      result = await demoParse(file, job, options);
+    } else {
+      result = await realParse(file, options);
+    }
+
+    updateJob(job, {
+      status: "success",
+      docType: result.doc_type || "generic",
+      confidence: result.confidence,
+      pages: result.pages || null,
+      markdown: result.report
+    });
+    setStep(3, "done");
+    await sleep(350);
+    $("#progressCard").classList.add("hidden");
+    showResult(job);
+  } catch (err) {
+    updateJob(job, { status: "failed" });
+    setStep(2, "fail");
+    toast("解析失败：" + (err.message || "未知错误"));
+    await sleep(1200);
+    showUpload();
+  }
+}
+
+/* ---- 演示模式：模拟真实流水线 ---- */
+async function demoParse(file, job, options) {
+  setStep(1, "running");
+  updateJob(job, { status: "running" });
+  await sleep(900);
+
+  const auto = options.mode === "auto";
+  const detected = {
+    doc_type: "drawing",
+    confidence: 0.96,
+    pages: 1
+  };
+  const finalType = auto ? detected.doc_type : options.doc_type;
+  updateJob(job, { docType: finalType, confidence: auto ? detected.confidence : null });
+
+  setStep(2, "running");
+  await sleep(1500);
+  setStep(3, "running");
+  await sleep(500);
+
+  return {
+    doc_type: finalType,
+    confidence: auto ? detected.confidence : null,
+    pages: detected.pages,
+    report: DEMO_REPORT
+  };
+}
+
+/* ---- 真实后端：提交 + 轮询 ---- */
+async function realParse(file, options) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("options", JSON.stringify(options));
+
+  const headers = {};
+  const apiKey = ($("#apiKey").value || "").trim();
+  if (apiKey) headers["X-API-Key"] = apiKey;
+  const res = await fetch(`${CONFIG.API_BASE}/v1/parse`, { method: "POST", body: form, headers });
+  if (!res.ok) throw new Error(`提交失败（${res.status}）`);
+  const { job_id } = await res.json();
+
+  setStep(1, "running");
+  const start = Date.now();
+  while (true) {
+    await sleep(CONFIG.POLL_INTERVAL_MS);
+    if (Date.now() - start > 5 * 60 * 1000) throw new Error("解析超时（超过 5 分钟）");
+    const r = await fetch(`${CONFIG.API_BASE}/v1/parse/${job_id}`);
+    if (!r.ok) throw new Error(`查询失败（${r.status}）`);
+    const data = await r.json();
+    if (data.status === "success") {
+      setStep(3, "done");
+      return data;
+    }
+    if (data.status === "failed") throw new Error(data.error || "解析失败");
+    applyStage(data.stage);
+  }
+}
+
+/* ============================================================
+ * 事件绑定
+ * ============================================================ */
+const dropzone = $("#dropzone");
+const fileInput = $("#fileInput");
+
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  dropzone.classList.add("drag");
+});
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+dropzone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropzone.classList.remove("drag");
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+  fileInput.value = "";
+});
+
+function handleFile(file) {
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+    toast("请选择 PDF 文件");
+    return;
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    toast("文件超过 50 MB");
+    return;
+  }
+  runParse(file);
+}
+
+$("#btnRedo").addEventListener("click", () => {
+  currentId = null;
+  showUpload();
+});
+
+$("#btnDownload").addEventListener("click", () => {
+  const job = jobs.find((j) => j.id === currentId);
+  if (!job || !job.markdown) { toast("无可下载内容"); return; }
+  const fmt = $("#outFormat").value;
+  if (fmt !== "markdown" && CONFIG.DEMO_MODE) {
+    toast("演示模式仅支持 Markdown 下载，接入后端后可导出 PDF / Word");
+    return;
+  }
+  const blob = new Blob([job.markdown], { type: "text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = job.fileName.replace(/\.pdf$/i, "") + "_解析报告.md";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// 初始化
+jobs = loadJobs();
+renderJobList();
+const apiKeyInput = $("#apiKey");
+apiKeyInput.value = localStorage.getItem("pdf_api_key") || "";
+apiKeyInput.addEventListener("change", () => {
+  localStorage.setItem("pdf_api_key", apiKeyInput.value.trim());
+});
+if (!CONFIG.DEMO_MODE) {
+  const badge = $("#modeBadge");
+  badge.innerHTML = '<span class="dot success"></span>已连接后端';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+requests
+python-dotenv
+pillow
+pymupdf
+reportlab
+fastapi
+uvicorn
+python-multipart
